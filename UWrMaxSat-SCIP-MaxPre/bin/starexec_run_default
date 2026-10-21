@@ -1,0 +1,2 @@
+#!/bin/bash
+./uwrmaxsat -v0 -no-bin -no-sat -no-par -maxpre-time=60 -scip-cpu=800 -scip-delay=400 -m -bm $1

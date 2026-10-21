@@ -1,0 +1,65 @@
+#!/bin/bash
+
+set -e
+
+cd code
+
+# =============================
+# 1. Build COMiniSatPS
+# =============================
+cd cominisatps
+rm -f core simp mtl utils
+ln -s minisat/core minisat/simp minisat/mtl minisat/utils .
+make clean lr
+cd ..
+
+# =============================
+# 2. Build MaxPre
+# =============================
+cd maxpre
+make clean lib
+cd ..
+
+# =============================
+# 3. Build SCIP
+# =============================
+rm -rf scipoptsuite-8.1.0
+tar zxf scipoptsuite-8.1.0.tgz
+cd scipoptsuite-8.1.0
+
+rm -rf build
+mkdir build && cd build
+
+cmake -DNO_EXTERNAL_CODE=on -DSOPLEX=on -DTPI=tny -DSHARED=off ..
+cmake --build . --config Release --target libscip libsoplex-pic
+
+cd ../..
+
+# =============================
+# 4. Build UWrMaxSAT
+# =============================
+cd uwrmaxsat
+
+rm -rf build
+
+make distclean 2>/dev/null || true
+make config
+make r   # <== THIS produces build/release/bin/uwrmaxsat
+
+# Put binary in project local bin/
+cp build/release/bin/uwrmaxsat ../../bin/
+
+rm -rf build
+cd ../..
+
+# =============================
+# 5. Install only in user HOME
+# =============================
+mkdir -p ~/local/bin
+cp bin/uwrmaxsat ~/local/bin/uwrmaxsat
+
+# Append PATH if not already added
+if ! grep -Fxq 'export PATH="$HOME/local/bin:$PATH"' ~/.bashrc; then
+    echo 'export PATH="$HOME/local/bin:$PATH"' >> ~/.bashrc
+fi
+source ~/.bashrc

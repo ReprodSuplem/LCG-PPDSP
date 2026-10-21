@@ -1,0 +1,6 @@
+gurobipy>=13.0.1
+ortools>=9.15.0
+python-sat>=1.8.dev24
+networkx>=2.8.8
+pandas>=2.3.3
+numpy>=2.2.6

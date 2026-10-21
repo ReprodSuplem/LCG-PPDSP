@@ -1,0 +1,42 @@
+# Virtual environments
+venv/
+.env/
+exp-env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Solver and batch execution logs
+*.log
+*.out
+
+# Synthesized intermediate data and solver model files
+*.csv
+*.lp
+*.mps
+*.wcnf
+*.meta
+*.asm
+
+# OS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# wsl
+*:Zone.Identifier
+
+# C/C++ build artifacts
+*.o
+*.a
+*.so
+
+# UWrMaxSat / SCIP / MaxPre / COMiniSatPS extracted and build directories
+UWrMaxSat-SCIP-MaxPre/code/scipoptsuite-*/
+UWrMaxSat-SCIP-MaxPre/code/cominisatps/build/
+UWrMaxSat-SCIP-MaxPre/code/maxpre/build/
+UWrMaxSat-SCIP-MaxPre/code/uwrmaxsat/build/
