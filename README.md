@@ -47,6 +47,9 @@ source ~/.bashrc
 
 *(Note: During experimental evaluation, `ppdsp_maxsat.py` invokes `uwrmaxsat` with the `-no-scip` flag so that all bounds and truth assignments are derived exclusively through core-guided Boolean reasoning.)*
 
+### Benchmark Instances Download (CVRPLib)
+Before executing the pipeline or evaluation scripts, please download the root CVRPLib benchmark instances for **Set A, Set B, and Set P** from public repositories (e.g., [https://galgos.inf.puc-rio.br/cvrplib/en/instances](https://galgos.inf.puc-rio.br/cvrplib/en/instances)). Extract the archives and place all `.vrp` instance files directly into the repository root directory (the same directory containing `ppdsp_run_exp.py`).
+
 ---
 
 ## 2. Repository Structure
