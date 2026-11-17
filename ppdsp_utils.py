@@ -182,66 +182,6 @@ class PPDSP_utils:
         return {k: v for k, v in groups.items() if len(v) >= 2}
 
     # ----------------------------
-    # Sequential capacity evaluation and Minimal Conflict Set (MCS) extraction (Algorithm 1, Section IV-A & IV-B)
-    # ----------------------------
-    @staticmethod
-    def checkOverload(self, vehID, route, assigned_reqs):
-        if not route:
-            return False, []
-
-        capacity = self.vehicleList[vehID][0]
-        load = 0
-        onboard = set()
-
-        # Request parameters [p_r, q_r, f(r), g(r)] for all r in R (Section III-A)
-        req_size    = {r: self.requestList[r][1] for r in range(self.lenOfRequest)}
-        pickup_node = {r: self.requestList[r][2] for r in range(self.lenOfRequest)}
-        drop_node   = {r: self.requestList[r][3] for r in range(self.lenOfRequest)}
-
-        violated = False
-        learnt_clause = []
-
-        # Simulate route R^t and track accumulated load Gamma and onboard set S_onboard (Algorithm 1, Lines 2-12)
-        for k, (o, d) in enumerate(route):
-            for r in assigned_reqs:
-                if d == pickup_node[r] and d == drop_node[r]:
-                    continue
-                elif d == pickup_node[r]:
-                    load += req_size[r]
-                    onboard.add(r)
-                elif d == drop_node[r] and r in onboard:
-                    load -= req_size[r]
-                    onboard.remove(r)
-
-            # Detect capacity overload Gamma > c and isolate MCS S_conflict via greedy reduction (Algorithm 1, Lines 13-20)
-            if load > capacity:
-                violated = True
-                onboard_reqs = list(onboard)
-                onboard_reqs.sort(key=lambda r: req_size[r], reverse=True)
-
-                minimal_conflict = []
-                current_subset_load = 0
-                for r in onboard_reqs:
-                    current_subset_load += req_size[r]
-                    minimal_conflict.append(r)
-                    if current_subset_load > capacity:
-                        break 
-
-                yLits = [-self.yVarList[r][vehID] for r in minimal_conflict]
-                prefix_origins = [route[i][0] for i in range(k + 1)]
-
-                xLits = []
-                for r in minimal_conflict:
-                    dp = drop_node[r]
-                    for p in prefix_origins:
-                        xLits.append(self.xVarList[vehID][p][dp])
-
-                learnt_clause = yLits + xLits
-                break
-
-        return violated, learnt_clause
-
-    # ----------------------------
     # Format and log reconstructed vehicle trajectories R^t and load profiles
     # ----------------------------
     @staticmethod
@@ -299,12 +239,65 @@ class PPDSP_utils:
                 f.write("\n" + output_str + "\n")
 
     # ----------------------------
-    # Evaluate net operational profit objective in Eq. (1)
+    # Verify route feasibility (Eqs. (2)-(9)) and evaluate net operational profit objective in Eq. (1)
     # ----------------------------
     @staticmethod
     def evaluateSolution(self, filtered_model, log_file=None):
         if self.id2Var is None:
             PPDSP_utils.buildVarIndexMap(self)
+
+        # Independent feasibility verification across all vehicles and assigned requests
+        vehRoutes = PPDSP_utils.decodeModel(self, filtered_model)
+        active_edges_per_veh = {t: [] for t in range(self.lenOfVehicle)}
+        for vid in filtered_model:
+            varInfo = self.id2Var.get(vid)
+            if varInfo is not None and varInfo[0] == 'x':
+                _, t, o, d = varInfo
+                if o != d:
+                    active_edges_per_veh[t].append((o, d))
+
+        served_reqs = set()
+        for t, info in vehRoutes.items():
+            route = info['route']
+            reqs = info['requests']
+            cap = self.vehicleList[t][0]
+            assert len(route) == len(active_edges_per_veh[t]), (
+                f"Disconnected subtour or degree violation on vehicle {t}: "
+                f"decoded route has {len(route)} arcs vs {len(active_edges_per_veh[t])} active arcs"
+            )
+            if route:
+                assert route[0][0] == self.lenOfLocation and route[-1][1] == self.lenOfLocation, (
+                    f"Route on vehicle {t} does not start and end at the depot ({self.lenOfLocation})"
+                )
+            visited_order = {}
+            for step_idx, (u, v) in enumerate(route):
+                assert self.adjMatrx[u][v] != 0, f"Invalid non-adjacent arc ({u},{v}) on vehicle {t}"
+                if v != self.lenOfLocation:
+                    assert v not in visited_order, f"Duplicate visit to customer node {v} on vehicle {t}"
+                    visited_order[v] = step_idx
+            for r in reqs:
+                assert r not in served_reqs, f"Request {r} assigned to multiple vehicles"
+                served_reqs.add(r)
+                pk, dp = self.requestList[r][2], self.requestList[r][3]
+                assert pk in visited_order and dp in visited_order, (
+                    f"Unvisited pickup/delivery endpoint ({pk} -> {dp}) for request {r} on vehicle {t}"
+                )
+                if pk != dp:
+                    assert visited_order[pk] < visited_order[dp], (
+                        f"Precedence violated for request {r} on vehicle {t}: pickup {pk} after delivery {dp}"
+                    )
+            load = 0
+            onboard = set()
+            for _, v in route:
+                if v != self.lenOfLocation:
+                    for r in reqs:
+                        if v == self.requestList[r][2] and v != self.requestList[r][3]:
+                            load += self.requestList[r][1]
+                            onboard.add(r)
+                        elif v == self.requestList[r][3] and r in onboard:
+                            load -= self.requestList[r][1]
+                            onboard.remove(r)
+                    assert load <= cap, f"Capacity exceeded ({load} > {cap}) at node {v} on vehicle {t}"
 
         cost = 0
         profit = 0

@@ -7,6 +7,11 @@ import re
 import pandas as pd
 import numpy as np
 
+CANONICAL_METHODS = {
+    "static", "hybrid_path", "hybrid_node", "full_path", "full_node",
+    "cpsat", "maxsat_path", "maxsat_order"
+}
+
 def parse_log_file(filepath):
     """
     Parse an individual solver log (.out) to extract primal objective value z, validated
@@ -14,6 +19,8 @@ def parse_log_file(filepath):
     termination status (Section VI-C).
     """
     filename = os.path.basename(filepath)
+    if ".wcnf" in filename:
+        return None
     match = re.match(r"ppdsp_(.*)_r(\d+)v(\d+)k(\d+)_(.*)\.out", filename)
     if not match:
         return None
@@ -21,11 +28,10 @@ def parse_log_file(filepath):
     instance = match.group(1)
     reqs = int(match.group(2))
     k_val = int(match.group(4))
-    
-    raw_method = match.group(5)
-    method = raw_method.replace('.wcnf', '')
-    if method.startswith('sat_'):
-        method = method.replace('sat_', 'maxsat_')
+    method = match.group(5)
+
+    if method not in CANONICAL_METHODS:
+        return None
 
     obj = np.nan
     bound = np.nan
@@ -44,7 +50,10 @@ def parse_log_file(filepath):
             is_timeout = True
 
         # Extract logged incumbent records (Time, Obj, Bound)
-        incumbents = re.findall(r"\[Incumbent.*?\]\s*Time:\s*([\d\.]+)s\s*\|\s*Obj:\s*([-\d\.]+)(?:\s*\|\s*Bound:\s*([-\d\.]+))?", content)
+        incumbents = re.findall(
+            r"\[Incumbent.*?\]\s*Time:\s*([\d\.]+)s\s*\|\s*Obj:\s*([-\d\.]+)(?:\s*\|\s*Bound:\s*([-\d\.]+))?",
+            content
+        )
 
         # Extract final primal objective z, dual bound, and total runtime T_total by solver family
         if method.startswith("maxsat"):
@@ -60,8 +69,18 @@ def parse_log_file(filepath):
             if time_match:
                 total_time = float(time_match.group(1))
                 
-            if not re.search(r"OPTIMUM FOUND", content) and not re.search(r"SATISFIABLE", content):
+            if not re.search(r"OPTIMUM FOUND", content):
                 is_timeout = True
+
+            # Extract exact discovery timestamp of the best capacity-feasible solution from UWrMaxSat log
+            ms_incumbents = re.findall(
+                r"c \[Elapsed time\]\s*([\d\.]+)\s*s\s*\r?\nc Found solution:\s*(\d+)",
+                content
+            )
+            if ms_incumbents:
+                incumbent_time = float(ms_incumbents[-1][0])
+            elif pd.notna(obj) and re.search(r"c c Found solution:\s*\d+", content):
+                incumbent_time = 0.0
 
         elif method == "cpsat":
             obj_match = re.search(r"(?:FINAL OBJ:|objective:)\s*([-\d\.]+)", content, re.IGNORECASE)
@@ -106,13 +125,13 @@ def parse_log_file(filepath):
                 bound = float(last_bound_str)
 
         # Determine time to best incumbent T_best (Section VI-C)
-        if pd.notna(obj) and obj > 0 and incumbents:
+        if incumbent_time is None and pd.notna(obj) and obj > 0 and incumbents:
             for t_str, o_str, _ in incumbents:
                 if abs(float(o_str) - obj) < 1e-5:
                     incumbent_time = float(t_str)
                     break
         
-        if incumbent_time is None and total_time is not None:
+        if incumbent_time is None and (not is_timeout) and pd.notna(obj) and total_time is not None:
             incumbent_time = total_time
 
     # Normalize floating-point zero representations
@@ -145,13 +164,12 @@ def process_results(log_directory):
     ppdsp_results.csv (Section VI-C).
     """
     results = []
-    for root, dirs, files in os.walk(log_directory):
-        for file in files:
-            if file.endswith(".out"):
-                filepath = os.path.join(root, file)
-                res = parse_log_file(filepath)
-                if res:
-                    results.append(res)
+    for file in sorted(os.listdir(log_directory)):
+        filepath = os.path.join(log_directory, file)
+        if os.path.isfile(filepath) and file.endswith(".out"):
+            res = parse_log_file(filepath)
+            if res:
+                results.append(res)
 
     df = pd.DataFrame(results)
     if df.empty:
@@ -168,12 +186,14 @@ def process_results(log_directory):
         valid_objs = group['Objective'].dropna()
         global_max_obj = valid_objs.max() if not valid_objs.empty else 0.0
         
-        # Filter out invalid dual bounds that fall below the highest validated primal objective
+        # Verify that no reported dual upper bound falls below the highest validated primal objective
         for idx in group.index:
             bb = df.loc[idx, 'BestBound']
             if pd.notna(bb) and bb < global_max_obj - 1e-5:
-                df.loc[idx, 'BestBound'] = np.nan
-                df.loc[idx, 'Timeout'] = True
+                raise AssertionError(
+                    f"[Bound Conflict] {inst} (k={k_val}, method={df.loc[idx, 'Method']}): "
+                    f"BestBound {bb} < Global Max Objective {global_max_obj}"
+                )
                 
         valid_bounds = df.loc[group.index, 'BestBound'].dropna()
         

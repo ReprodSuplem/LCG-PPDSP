@@ -47,9 +47,6 @@ source ~/.bashrc
 
 *(Note: During experimental evaluation, `ppdsp_maxsat.py` invokes `uwrmaxsat` with the `-no-scip` flag so that all bounds and truth assignments are derived exclusively through core-guided Boolean reasoning.)*
 
-### Benchmark Instances Download (CVRPLib)
-Before executing the pipeline or evaluation scripts, please download the root CVRPLib benchmark instances for **Set A, Set B, and Set P** from public repositories (e.g., [https://galgos.inf.puc-rio.br/cvrplib/en/instances](https://galgos.inf.puc-rio.br/cvrplib/en/instances)). Extract the archives and place all `.vrp` instance files directly into the repository root directory (the same directory containing `ppdsp_run_exp.py`).
-
 ---
 
 ## 2. Repository Structure
@@ -57,16 +54,16 @@ Before executing the pipeline or evaluation scripts, please download the root CV
 ### Core Benchmark & Solver Scripts
 - **`ppdsp_ins_arg.py`**: Parses root CVRPLib (`.vrp`) instances (Sets A, B, and P), executes two-phase empirical demand sampling up to $1.5 \cdot |T| \cdot c$ (using fixed random seed `42`), computes request revenues $p_r$, constructs directed sparse graphs $G=(V, E)$ via the union of the Euclidean MST, symmetric $k$-Nearest Neighbor ($k$-NN) edges ($k \in \{3, 4, 5\}$), and bidirectional depot arcs, and exports solver-ready CSV files (Section VI-A).
 - **`ppdsp_ins_gen.py`**: Reads synthesized CSV files (`2DNode_*.csv`, `adjMatrx*_.csv`, `requestInfo*_.csv`, `vehicleInfo*_.csv`), computes all-pairs shortest-path travel costs $l_{od}$ via the Floyd-Warshall algorithm, and allocates global variable indices for $x^t_{od}$, $y^t_r$, $\nu^t_{d,\epsilon}$, $u^t_v$, and $h^t_v$ (Section III-A, Section V-C, Section VI-A).
-- **`ppdsp_utils.py`**: Provides truth-assignment decoding, ordered route reconstruction $\mathcal{R}^t$, sequential capacity simulation and greedy Minimal Conflict Set (MCS) extraction (Algorithm 1), homogeneous fleet symmetry grouping, net operational profit evaluation (Eq. (1)), and `.meta` file export for `UWrMaxSat` (Section III-B, Section IV).
+- **`ppdsp_utils.py`**: Provides truth-assignment decoding, ordered route reconstruction $\mathcal{R}^t$, homogeneous fleet symmetry grouping, independent route feasibility verification (Eqs. (2)–(9)) and net operational profit evaluation (Eq. (1)), and `.meta` file export for `UWrMaxSat` (Section III-B, Section IV).
 - **`ppdsp_mip.py`**: Implements the Gurobi MIP model and lazy constraint callbacks supporting the `static`, `hybrid-path`, `hybrid-node`, `full-path`, and `full-node` configurations (Section III-B Eqs. (1)–(9), Section IV Eqs. (10)–(11), Section VI-B1).
 - **`ppdsp_cpsat.py`**: Implements the Google OR-Tools `CP-SAT` formulation using the global `AddCircuit` propagator, conditional integer precedence/load constraints, and lexicographic symmetry breaking (Section VI-B2).
-- **`ppdsp_maxsat.py`**: Encodes the PPDSP as a weighted partial MaxSAT instance $\Phi = (\mathcal{C}\_{\text{hard}}, \mathcal{C}_{\text{soft}})$ using weighted soft clauses (Section V-A), pairwise At-Most-One clauses (Eqs. (12)–(13)), visitation and flow implications (Eqs. (14)–(16)), topological order clauses (Eqs. (17)–(19)), and propositional symmetry breaking (Section V-D), and interfaces with `uwrmaxsat` (Section VI-B3).
-- **`UWrMaxSat-SCIP-MaxPre/`** (containing **`PPDSP_utils.cc`**): C++ source tree of `UWrMaxSat` implementing in-memory candidate route decoding, greedy MCS reduction (Algorithm 1, Proposition 1), and symmetry-broadcast clause injection for path-based LCG (Eq. (20)) and order-based LCG (Eq. (21)) (Section V-D, Section VI-B3).
+- **`ppdsp_maxsat.py`**: Encodes the PPDSP as a weighted partial MaxSAT instance $\Phi = (\mathcal{C}_{\text{hard}}, \mathcal{C}_{\text{soft}})$ using weighted soft clauses (Section V-A), pairwise At-Most-One clauses (Eqs. (12)–(13)), visitation and flow implications (Eqs. (14)–(16)), topological order clauses (Eqs. (17)–(19)), and propositional symmetry breaking (Section V-D), and interfaces with `uwrmaxsat` (Section VI-B3).
+- **`UWrMaxSat-SCIP-MaxPre/`** (containing **`PPDSP_utils.cc`**): C++ source tree of `UWrMaxSat` implementing in-memory candidate route decoding, greedy Minimal Conflict Set (MCS) reduction (Algorithm 1, Proposition 1), and symmetry-broadcast clause injection for path-based LCG (Eq. (20)) and order-based LCG (Eq. (21)) (Section V-D, Section VI-B3).
 
 ### Execution, Post-Processing & Visualization Scripts
 - **`ppdsp_main.py`**: Unified command-line interface for running an individual benchmark instance under a specified solver configuration (Section VI-B).
 - **`ppdsp_run_exp.py`**: Automated batch orchestrator that synthesizes all 222 PPDSP benchmark instances (74 root CVRPLib instances across $k \in \{3, 4, 5\}$) and dispatches all eight exact solver configurations under a 3600-second wall-clock time limit and single-thread execution, followed by automatic compilation of results (Section VI-A, Section VI-B).
-- **`ppdsp_results.py`**: Parses all generated `.out` solver logs, validates dual upper bounds, computes the global Best Known Bound (BKB) and relative optimality gap $(\text{BKB} - z)/z \times 100\%$, and exports the master dataset `ppdsp_results.csv` (Section VI-C).
+- **`ppdsp_results.py`**: Parses all generated `.out` solver logs, extracts exact incumbent discovery timestamps $T_{\text{best}}$, validates dual upper bounds, computes the global Best Known Bound (BKB) and relative optimality gap $(\text{BKB} - z)/z \times 100\%$, and exports the master dataset `ppdsp_results.csv` (Section VI-C).
 - **`make_latex_tables.py`** & **`make_supplementary.py`**: Post-processing scripts that read `ppdsp_results.csv` to generate the solution quality dominance summary table (`section6_table.tex`, Table II) and the standalone 38-table instance-by-instance supplementary document (`appendix_tables.tex` and `supplementary.tex`).
 - **`figDataClas.py`**: Post-processing script that reads `ppdsp_results.csv`, partitions instances by benchmark group, and computes the empirical cumulative distribution function (ECDF) step-plot coordinates of relative optimality gaps across all 222 instances (`ppdsp_all_gap.csv`) and within individual sets (`ppdsp_A_gap.csv`, `ppdsp_B_gap.csv`, `ppdsp_P_gap.csv`) (Section VI-D3).
 - **`plot_gap.tex`**: Standalone TikZ/PGFPlots LaTeX file that compiles `ppdsp_all_gap.csv`, `ppdsp_A_gap.csv`, `ppdsp_B_gap.csv`, and `ppdsp_P_gap.csv` into the 1x4 relative optimality gap profile figure (`plot_gap.pdf`, Fig. 1 in Section VI-D3).
@@ -74,6 +71,9 @@ Before executing the pipeline or evaluation scripts, please download the root CV
 ---
 
 ## 3. Usage Guide
+
+### Prerequisite: Downloading CVRPLib Benchmark Instances
+The raw CVRPLib benchmark files are not bundled in this repository. Before running the synthesis or evaluation scripts, please download the root benchmark instances for **Set A, Set B, and Set P** from any public CVRPLib mirror (e.g., [https://galgos.inf.puc-rio.br/cvrplib/en/instances](https://galgos.inf.puc-rio.br/cvrplib/en/instances)). Extract the archives to obtain the `.vrp` files and place them directly in the repository root directory (the same directory as `ppdsp_run_exp.py`).
 
 ### Step 1: Benchmark Instance Synthesis
 To convert a raw CVRPLib `.vrp` file into solver-ready CSV matrices for a specific $k$-NN connectivity density:
@@ -87,35 +87,35 @@ This command extracts the fleet size $|T|$ and vehicle capacity $c$, samples pic
 - `2DNode_P-n22-k8.csv`: Normalized 2D node coordinates (customers indexed $0 \dots |V|-2$, depot at $|V|-1$).
 - `adjMatrx3_P-n22-k8.csv`: Directed adjacency matrix for $k\text{-NN} = 3$ unified with the Euclidean MST and depot arcs.
 - `vehicleInfo8_P-n22-k8.csv`: Homogeneous vehicle capacity and cost parameters.
-- `requestInfo<|R|>_P-n22-k8.csv`: Synthesized request tuples `[p_r, q_r, f(r), g(r)]` (e.g., `requestInfo29_P-n22-k8.csv`).
+- `requestInfo<|R|>_P-n22-k8.csv`: Synthesized request tuples `[p_r, q_r, f(r), g(r)]` (e.g., `requestInfo35_P-n22-k8.csv`).
 
 ### Step 2: Single Instance Evaluation
 Use `ppdsp_main.py` to evaluate a single instance under any of the eight exact configurations. The script automatically detects the fleet size from `vehicleInfo*_<instance>.csv`.
 
 ```bash
 # 1. MIP — static configuration (Eqs. (1)-(9))
-python ppdsp_main.py mip P-n22-k8 29 --knn 3 --mip_strategy static --time 3600
+python ppdsp_main.py mip P-n22-k8 35 --knn 3 --mip_strategy static --time 3600
 
 # 2. MIP — hybrid-path configuration (MTZ + path-based capacity cuts in Eq. (10))
-python ppdsp_main.py mip P-n22-k8 29 --knn 3 --mip_strategy hybrid --cut_type path --time 3600
+python ppdsp_main.py mip P-n22-k8 35 --knn 3 --mip_strategy hybrid --cut_type path --time 3600
 
 # 3. MIP — hybrid-node configuration (MTZ + node-based capacity cuts in Eq. (11))
-python ppdsp_main.py mip P-n22-k8 29 --knn 3 --mip_strategy hybrid --cut_type node --time 3600
+python ppdsp_main.py mip P-n22-k8 35 --knn 3 --mip_strategy hybrid --cut_type node --time 3600
 
 # 4. MIP — full-path configuration (pure lazy subtour, precedence, and Eq. (10) capacity cuts)
-python ppdsp_main.py mip P-n22-k8 29 --knn 3 --mip_strategy full --cut_type path --time 3600
+python ppdsp_main.py mip P-n22-k8 35 --knn 3 --mip_strategy full --cut_type path --time 3600
 
 # 5. MIP — full-node configuration (pure lazy subtour, precedence, and Eq. (11) capacity cuts)
-python ppdsp_main.py mip P-n22-k8 29 --knn 3 --mip_strategy full --cut_type node --time 3600
+python ppdsp_main.py mip P-n22-k8 35 --knn 3 --mip_strategy full --cut_type node --time 3600
 
 # 6. CP — Google OR-Tools CP-SAT configuration
-python ppdsp_main.py cpsat P-n22-k8 29 --knn 3 --time 3600
+python ppdsp_main.py cpsat P-n22-k8 35 --knn 3 --time 3600
 
 # 7. MaxSAT — MaxSAT-path configuration (Order Encoding + path-based LCG in Eq. (20))
-python ppdsp_main.py sat P-n22-k8 29 --knn 3 --cut_type path --time 3600
+python ppdsp_main.py sat P-n22-k8 35 --knn 3 --cut_type path --time 3600
 
 # 8. MaxSAT — MaxSAT-order configuration (Order Encoding + order-based LCG in Eq. (21))
-python ppdsp_main.py sat P-n22-k8 29 --knn 3 --cut_type order --time 3600
+python ppdsp_main.py sat P-n22-k8 35 --knn 3 --cut_type order --time 3600
 ```
 
 **Command-Line Arguments for `ppdsp_main.py`:**
@@ -131,7 +131,7 @@ python ppdsp_main.py sat P-n22-k8 29 --knn 3 --cut_type order --time 3600
 ### Step 3: Reproducing All Paper Experiments, Tables, and Figures
 To reproduce the complete benchmark evaluation across all 222 instances ($74 \text{ root instances} \times 3 \text{ connectivity densities } k \in \{3, 4, 5\}$) and all eight solver configurations ($1,776$ total solver runs):
 
-1. Place the 74 root CVRPLib `.vrp` files (Sets A, B, and P) in the working directory.
+1. Download and extract the 74 root CVRPLib `.vrp` files (Sets A, B, and P) from [https://galgos.inf.puc-rio.br/cvrplib/en/instances](https://galgos.inf.puc-rio.br/cvrplib/en/instances) into the repository root directory (the same directory as `ppdsp_run_exp.py`).
 2. Adjust `MAX_WORKERS` in `ppdsp_run_exp.py` to match the number of available physical CPU cores on your machine (each solver task is strictly pinned to 1 thread).
 3. Run the batch experiment script directly (or in the background via `nohup`):
 
@@ -146,7 +146,7 @@ tail -f master_ppdsp.log
 
 `ppdsp_run_exp.py` executes the entire workflow automatically:
 - Synthesizes the CSV instance files for all 74 root instances across $k \in \{3, 4, 5\}$ with `GLOBAL_SEED = 42`.
-- Executes all eight solver configurations (`static`, `hybrid_path`, `hybrid_node`, `full_path`, `full_node`, `cpsat`, `maxsat_path`, `maxsat_order`) with a 3600-second time limit per run, writing detailed trajectories and incumbent logs to `.out` files.
+- Executes all eight solver configurations (`static`, `hybrid_path`, `hybrid_node`, `full_path`, `full_node`, `cpsat`, `maxsat_path`, `maxsat_order`) with a 3600-second wall-clock time limit per run, writing detailed trajectories and incumbent logs to `.out` files.
 - Invokes `python ppdsp_results.py` upon completion to parse all `.out` logs and generate `ppdsp_results.csv`.
 
 4. To re-aggregate `.out` logs or generate the LaTeX tables and optimality gap figure (Fig. 1) from `ppdsp_results.csv` at any time:

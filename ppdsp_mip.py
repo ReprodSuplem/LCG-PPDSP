@@ -132,11 +132,13 @@ class PPDSP_MIP(PPDSP_reform):
                     
                     if all_reqs:
                         # Eqs. (3)-(4): Couple request assignment y^t_r with physical visits to f(r) and g(r)
-                        self.model.addConstr(v_active <= gp.quicksum(self.y[r, t] for r in all_reqs))
+                        if self.knn == 0:
+                            self.model.addConstr(v_active <= gp.quicksum(self.y[r, t] for r in all_reqs))
                         for r in all_reqs:
                             self.model.addConstr(v_active >= self.y[r, t])
-                    else:
+                    elif self.knn == 0:
                         self.model.addConstr(v_active == 0)
+                    self.model.addConstr(v_active <= is_used)
                     
                     in_flow = gp.quicksum(self.x[t, j, i] for j in range(num_nodes) if i != j and self.x[t, j, i] is not None)
                     out_flow = gp.quicksum(self.x[t, i, j] for j in range(num_nodes) if i != j and self.x[t, i, j] is not None)
@@ -196,7 +198,7 @@ class PPDSP_MIP(PPDSP_reform):
 
         # ==================== Callback Metadata References ====================
         # Store variable handles and request parameters [q_r, f(r), g(r)] for lazy constraint separation
-        self.model._x = {k: v for k, v in self.x.items() if v is not None}
+        self.model._x = {(t, i, j): v for (t, i, j), v in self.x.items() if i != j and v is not None}
         self.model._y = self.y
         self.model._DEPOT = self.DEPOT
         self.model._num_vehs = num_vehs
@@ -218,7 +220,7 @@ class PPDSP_MIP(PPDSP_reform):
             y_vals = model.cbGetSolution(model._y)
 
             for t in range(model._num_vehs):
-                edges = [(i, j) for (veh, i, j), val in x_vals.items() if veh == t and val > 0.5]
+                edges = [(i, j) for (veh, i, j), val in x_vals.items() if veh == t and i != j and val > 0.5]
                 if not edges: continue
 
                 adj = {u: v for u, v in edges}
@@ -302,12 +304,13 @@ class PPDSP_MIP(PPDSP_reform):
             y_vals = model.cbGetSolution(model._y)
 
             for t in range(model._num_vehs):
-                edges = [(i, j) for (veh, i, j), val in x_vals.items() if veh == t and val > 0.5]
+                edges = [(i, j) for (veh, i, j), val in x_vals.items() if veh == t and i != j and val > 0.5]
                 if not edges: continue
 
                 adj = {u: v for u, v in edges}
 
                 # Stage 1: Separate Dantzig-Fulkerson-Johnson (DFJ) subtour elimination cuts
+                subtour_violated = False
                 visited = set()
                 for u, v in edges:
                     if u not in visited:
@@ -323,7 +326,8 @@ class PPDSP_MIP(PPDSP_reform):
                         if curr in path_set:
                             cycle_idx = path.index(curr)
                             cycle = path[cycle_idx:]
-                            if model._DEPOT not in cycle:
+                            if model._DEPOT not in cycle and len(cycle) >= 2:
+                                subtour_violated = True
                                 S = set(cycle)
                                 for veh_id in range(model._num_vehs):
                                     cut_expr = gp.quicksum(
@@ -333,7 +337,7 @@ class PPDSP_MIP(PPDSP_reform):
                                     )
                                     model.cbLazy(cut_expr <= len(S) - 1)
 
-                if model._DEPOT not in adj: continue
+                if subtour_violated or model._DEPOT not in adj: continue
                 
                 route_edges = []
                 curr = model._DEPOT
@@ -346,6 +350,7 @@ class PPDSP_MIP(PPDSP_reform):
                 assigned_reqs = [r for r in range(model._num_reqs) if y_vals[r, t] > 0.5]
                 
                 # Stage 2: Separate path-based pickup-before-delivery precedence cuts
+                prec_violated = False
                 seen_nodes = {model._DEPOT}
                 for k, (u, v) in enumerate(route_edges):
                     seen_nodes.add(v)
@@ -353,6 +358,7 @@ class PPDSP_MIP(PPDSP_reform):
                         pk = model._pickup[r]
                         dp = model._dropoff[r]
                         if pk != dp and v == dp and pk not in seen_nodes:
+                            prec_violated = True
                             path_edges = route_edges[:k+1]
                             for veh_id in range(model._num_vehs):
                                 cut_expr = gp.quicksum(
@@ -361,6 +367,8 @@ class PPDSP_MIP(PPDSP_reform):
                                     if (veh_id, i, j) in model._x
                                 )
                                 model.cbLazy(cut_expr + model._y[r, veh_id] <= len(path_edges))
+
+                if prec_violated: continue
 
                 # Stage 3: Separate capacity cuts via Algorithm 1 (Eq. (11) node-based or Eq. (10) path-based)
                 load = 0
@@ -423,10 +431,12 @@ class PPDSP_MIP(PPDSP_reform):
             print(f"[Gurobi {self.bc_strategy}_bc] Setting time limit to {time_limit} seconds")
             self.model.setParam('TimeLimit', time_limit)
             
-        self.model.setParam('Threads', 1) 
+        self.model.setParam('Threads', 1)
+        self.model.setParam('MIPGap', 0.0)
         
-        # Enable lazy constraint callbacks for branch-and-cut execution
-        self.model.setParam('LazyConstraints', 1)
+        # Enable lazy constraint callbacks only for hybrid and full branch-and-cut configurations
+        if self.bc_strategy in ['hybrid', 'full']:
+            self.model.setParam('LazyConstraints', 1)
 
         log_file = f"{self.insName}.out"
         with open(log_file, "w") as f:
@@ -472,13 +482,13 @@ class PPDSP_MIP(PPDSP_reform):
                     raw_model = [v.VarName for v in self.model.getVars() if v.X > 0.5 and (v.VarName.startswith('x') or v.VarName.startswith('y'))]
                     filtered_model = PPDSP_utils.convert_model(raw_model)
 
+                    PPDSP_utils.printVehRoutes(self, filtered_model, log_file)
+                    PPDSP_utils.evaluateSolution(self, filtered_model, log_file)
+
                     log(f"[Gurobi {self.bc_strategy}_{self.cut_type}] Status: {self.model.Status}")
                     log(f"[Gurobi {self.bc_strategy}_{self.cut_type}] BEST OBJ: {self.model.ObjVal}")
                     log(f"[Gurobi {self.bc_strategy}_{self.cut_type}] BEST BOUND: {self.model.ObjBound}")
                     log(f"[Gurobi {self.bc_strategy}_{self.cut_type}] Runtime: {elapsed:.3f} sec")
-                    
-                    PPDSP_utils.printVehRoutes(self, filtered_model, log_file)
-                    PPDSP_utils.evaluateSolution(self, filtered_model, log_file)
                     return filtered_model
                 else:
                     log(f"[Gurobi {self.bc_strategy}_{self.cut_type}] Reached Time Limit, NO feasible solution.")

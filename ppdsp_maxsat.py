@@ -22,7 +22,7 @@ class PPDSP_MaxSAT(PPDSP_reform):
         self.cnf = CNF()
         self.vpool = None
         
-        self.insName = f"ppdsp_{pdpName}_r{num_reqs}v{num_vehs}k{knn}_maxsat"
+        self.insName = f"ppdsp_{pdpName}_r{num_reqs}v{num_vehs}k{knn}_maxsat_{self.cut_type}"
 
     def atLeastOne(self, varList):
         self.wcnf.append(varList)
@@ -252,14 +252,14 @@ class PPDSP_MaxSAT(PPDSP_reform):
         wcnf_file = self.insName + ".wcnf"
         lastY = self.getLastYVarID()
         meta_file = self.insName + ".meta"
-        log_file  = wcnf_file + "_" + self.cut_type + ".out"
+        log_file  = self.insName + ".out"
 
         cmd = f"stdbuf -oL uwrmaxsat -no-bin -no-sat -no-par -no-scip -ppdsp-cut-type={self.cut_type} -ppdsp-time={time_limit} -ppdsp-lastY={lastY} -ppdsp={meta_file}"
         if assumption_file is not None and os.path.exists(assumption_file):
             cmd += f" -ppdsp-assume={assumption_file}"
             print(f"  [Info] Injected assumption file: {assumption_file}")
             
-        cmd += f" {wcnf_file} | tee {log_file}"
+        cmd += f" {wcnf_file} 2>&1 | tee {log_file}"
         print(f"[UWrMaxSAT] Executing solver command:\n  {cmd}")
         os.system(cmd)
 
@@ -267,6 +267,8 @@ class PPDSP_MaxSAT(PPDSP_reform):
         with open(log_file, "r") as f:
             for line in f:
                 line = line.strip()
+                if "[UWrMaxSAT Error]" in line:
+                    raise RuntimeError(f"C++ solver aborted with error: {line}")
                 if line.startswith("v "):
                     for lit in line.split()[1:]: 
                         if lit != "0":

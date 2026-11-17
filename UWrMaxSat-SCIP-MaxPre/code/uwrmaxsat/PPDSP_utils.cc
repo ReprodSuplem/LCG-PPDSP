@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <iostream>
 #include <cassert>
+#include <cstdlib>
+#include <chrono>
 #include <fstream>
 #include <sstream>
 #include <cstring>
@@ -93,7 +95,14 @@ void PPDSP_utils::decodeModel(
     int depot = inst->lenOfLocation;
     for (int t=0; t<inst->lenOfVehicle; t++){
         std::vector<std::pair<int,int> > &edges = vehRoutes[t];
-        if (edges.empty()) continue;
+        if (edges.empty()) {
+            if (!vehReqs[t].empty()) {
+                std::cerr << "[UWrMaxSAT Error] Vehicle " << t
+                          << " has assigned requests but no active routing edges in decodeModel." << std::endl;
+                std::exit(1);
+            }
+            continue;
+        }
 
         std::unordered_map<int,int> nxt;
         for (size_t i = 0; i < edges.size(); i++)
@@ -106,6 +115,17 @@ void PPDSP_utils::decodeModel(
             route.push_back(std::make_pair(cur, d));
             cur = d;
             if (cur == depot) break;
+        }
+        if (route.size() != edges.size()) {
+            std::cerr << "[UWrMaxSAT Error] Disconnected subtour or degree violation on vehicle " << t
+                      << " in decodeModel (route size " << route.size()
+                      << " vs active edges " << edges.size() << ")." << std::endl;
+            std::exit(1);
+        }
+        if (route.empty() || route.back().second != depot) {
+            std::cerr << "[UWrMaxSAT Error] Route on vehicle " << t
+                      << " does not return to the depot in decodeModel." << std::endl;
+            std::exit(1);
         }
         vehRoutes[t] = route;
     }
@@ -121,7 +141,14 @@ bool PPDSP_utils::checkOverload(
     std::vector<std::vector<Minisat::Lit>>& learnt_clauses,
     bool enable_broadcast
 ){
-    if (route.empty()) return false;
+    if (route.empty()) {
+        if (!assigned_reqs.empty()) {
+            std::cerr << "[UWrMaxSAT Error] Vehicle " << vehID
+                      << " has assigned requests but an empty route in checkOverload." << std::endl;
+            std::exit(1);
+        }
+        return false;
+    }
 
     int capacity = inst->vehicleList[vehID][0];
     int load = 0;
@@ -235,8 +262,8 @@ bool PPDSP_utils::checkOverload(
                 // for all t in T and eps in {0, ..., |V|-3}
                 // ----------------------------------------------------
                 for (int targetID : *target_vehicles) {
-                    // Positional index eps ranges from 0 to |V|-3 (where lenOfLocation = |V|-1, so max_p = |V|-2)
-                    int max_p = inst->lenOfLocation - 2; 
+                    // Positional index eps ranges from 0 to |V|-3 (where lenOfLocation = |V|-1, so max_p = lenOfLocation - 1 = |V|-2)
+                    int max_p = inst->lenOfLocation - 1; 
 
                     for (int p = 0; p < max_p; p++) {
                         std::vector<Minisat::Lit> clause;
@@ -492,7 +519,6 @@ bool loadPPDSPInstance(const char* filename, PPDSP_Instance& inst)
             inst.vehicleList[t] = {(int)cap, (int)cost};
         }
         else if (section == "vehicleGroups") {
-            // int gid = std::stoi(tag);
             int count;
             in >> count;
             std::vector<int> groupMembers;
@@ -544,10 +570,16 @@ bool loadAssumptionLits(const char* filename, Minisat::vec<Minisat::Lit>& out_as
 
 void PPDSP_setTimeLimit(int seconds) { PPDSP_time_limit = seconds; }
 
-void PPDSP_startTimer() { PPDSP_start_time = std::clock(); }
+void PPDSP_startTimer() {
+    PPDSP_start_time = std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()
+    ).count();
+}
 
 bool PPDSP_timeout() {
-    if (PPDSP_time_limit <= 0) return false;
-    double elapsed = (std::clock() - PPDSP_start_time) / CLOCKS_PER_SEC;
-    return elapsed >= PPDSP_time_limit;
+    if (PPDSP_time_limit <= 0 || PPDSP_start_time <= 0) return false;
+    double now = std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()
+    ).count();
+    return (now - PPDSP_start_time) >= PPDSP_time_limit;
 }

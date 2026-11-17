@@ -242,11 +242,12 @@ class PPDSP_CPSAT(PPDSP_reform):
 
             filtered_model = PPDSP_utils.convert_model(raw_model)
 
-            log(f"[CP-SAT] FINAL OBJ: {solver.ObjectiveValue()}")
-            log(f"[CP-SAT] Total Runtime: {elapsed:.3f} sec")
-            
             PPDSP_utils.printVehRoutes(self, filtered_model, log_file)
             PPDSP_utils.evaluateSolution(self, filtered_model, log_file)
+
+            log(f"[CP-SAT] FINAL OBJ: {solver.ObjectiveValue()}")
+            log(f"[CP-SAT] BEST BOUND: {solver.BestObjectiveBound()}")
+            log(f"[CP-SAT] Total Runtime: {elapsed:.3f} sec")
             
             log("===== RAW XY MODEL =====")
             log(" ".join(str(v) for v in filtered_model))
@@ -254,5 +255,6 @@ class PPDSP_CPSAT(PPDSP_reform):
             return filtered_model
         else:
             log("[CP-SAT] No feasible solution found.")
+            log(f"[CP-SAT] BEST BOUND: {solver.BestObjectiveBound()}")
             log(f"[CP-SAT] Total Runtime: {elapsed:.3f} sec")
             return None

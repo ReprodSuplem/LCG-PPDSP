@@ -9,6 +9,11 @@ __pycache__/
 *.pyo
 *.pyd
 
+# Benchmark instance files
+*.vrp
+*.txt
+*.tsp
+
 # Solver and batch execution logs
 *.log
 *.out
@@ -34,8 +39,10 @@ __pycache__/
 *.o
 *.a
 *.so
+*.d
 
 # UWrMaxSat / SCIP / MaxPre / COMiniSatPS extracted and build directories
+UWrMaxSat-SCIP-MaxPre/bin/uwrmaxsat
 UWrMaxSat-SCIP-MaxPre/code/scipoptsuite-*/
 UWrMaxSat-SCIP-MaxPre/code/cominisatps/build/
 UWrMaxSat-SCIP-MaxPre/code/maxpre/build/
